@@ -16,3 +16,11 @@ func NumberOfItemsLookupMap[T comparable](arr []T) map[T]int {
 	}
 	return lookupMap
 }
+
+func RemoveIndex(s []uint8, index int) []uint8 {
+	copy := make([]uint8, 0)
+	copy = append(copy, s[:index]...)
+	copy = append(copy, s[index+1:]...)
+
+	return copy
+}
