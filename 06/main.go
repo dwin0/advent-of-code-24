@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"fmt"
 	"log"
+	"slices"
+	"strconv"
 	"strings"
 
 	"os"
@@ -35,39 +37,92 @@ var startingDirection = "up"
 // 	fmt.Println("X in map", countXInMap(&guardMap))
 // }
 
-var signForDirection = map[string]string{
-	"up":    "|",
-	"down":  "|",
-	"left":  "-",
-	"right": "-",
-}
+// Part 2 (not working)
 
-// Part 2
+var visitedPlaces = make(map[string][]string)
+
 func main() {
-	guardMap := readMap("./map-small.txt")
-	rowIndex, colIndex := findGuard(&guardMap)
-	direction := startingDirection
-	markSignInMap(&guardMap, rowIndex, colIndex, signForDirection[direction])
+	guardMap := readMap("./map.txt")
+	guardRowIndex, guardColIndex := findGuard(&guardMap)
 
-	for {
-		updatedRowIndex, updatedColIndex, updatedDirection, hasLeftArea := guardMove(&guardMap, rowIndex, colIndex, direction)
+	totalPossibleLoops := 0
 
-		if hasLeftArea {
-			break
-		} else {
-			if direction != updatedDirection {
-				markSignInMap(&guardMap, rowIndex, colIndex, "+")
+	for iRow, row := range guardMap {
+		for iCol, val := range row {
+			if val == "#" || val == "^" {
+				continue
 			}
 
-			markSignInMap(&guardMap, updatedRowIndex, updatedColIndex, signForDirection[updatedDirection])
+			if loopByPlacingObstruction(copyMap(guardMap), iRow, iCol, guardRowIndex, guardColIndex) {
+				totalPossibleLoops++
+				fmt.Println(iRow, iCol)
+			}
 		}
-
-		rowIndex = updatedRowIndex
-		colIndex = updatedColIndex
-		direction = updatedDirection
-		fmt.Println(guardMap)
 	}
 
+	fmt.Println("totalPossibleLoops", totalPossibleLoops)
+}
+
+func copyMap(guardMap [][]string) [][]string {
+	duplicate := make([][]string, len(guardMap))
+	for i := range guardMap {
+		duplicate[i] = make([]string, len(guardMap[i]))
+		copy(duplicate[i], guardMap[i])
+	}
+	return duplicate
+}
+
+func loopByPlacingObstruction(guardMap [][]string, rowIndex int, colIndex int, guardRowPosition int, guardColPosition int) bool {
+	guardMap[rowIndex][colIndex] = "#"
+	direction := startingDirection
+	addToVisitedPlaces(guardRowPosition, guardColPosition, direction)
+	defer clearVisitedPlaces()
+
+	for {
+		updatedRowIndex, updatedColIndex, updatedDirection, hasLeftArea := guardMove(&guardMap, guardRowPosition, guardColPosition, direction)
+
+		if hasLeftArea {
+			return false
+		} else if isLoop(updatedRowIndex, updatedColIndex, updatedDirection) {
+			// fmt.Println(updatedRowIndex, updatedColIndex, updatedDirection)
+			return true
+		} else {
+			// fmt.Println(updatedRowIndex, updatedColIndex, updatedDirection)
+			addToVisitedPlaces(updatedRowIndex, updatedColIndex, updatedDirection)
+		}
+
+		guardRowPosition = updatedRowIndex
+		guardColPosition = updatedColIndex
+		direction = updatedDirection
+	}
+}
+
+func addToVisitedPlaces(rowIndex int, colIndex int, direction string) {
+	rIndex := strconv.Itoa(rowIndex)
+	cIndex := strconv.Itoa(colIndex)
+
+	existingDirections, found := visitedPlaces[rIndex+"_"+cIndex]
+	if found {
+		visitedPlaces[rIndex+"_"+cIndex] = append(existingDirections, direction)
+	} else {
+		visitedPlaces[rIndex+"_"+cIndex] = []string{direction}
+	}
+}
+
+func clearVisitedPlaces() {
+	visitedPlaces = make(map[string][]string)
+}
+
+func isLoop(rowIndex int, colIndex int, direction string) bool {
+	rIndex := strconv.Itoa(rowIndex)
+	cIndex := strconv.Itoa(colIndex)
+
+	existingDirections, found := visitedPlaces[rIndex+"_"+cIndex]
+	if found {
+		return slices.Contains(existingDirections, direction)
+	}
+
+	return false
 }
 
 func guardMove(guardMap *[][]string, rowIndex int, colIndex int, direction string) (newRowIndex int, newColIndex int, newDirection string, leftArea bool) {
@@ -79,7 +134,6 @@ func guardMove(guardMap *[][]string, rowIndex int, colIndex int, direction strin
 			}
 
 			if (*guardMap)[rowIndex-1][colIndex] == "#" {
-				fmt.Println("found #")
 				return rowIndex, colIndex + 1, "right", false
 			}
 			return rowIndex - 1, colIndex, direction, false
@@ -91,7 +145,6 @@ func guardMove(guardMap *[][]string, rowIndex int, colIndex int, direction strin
 			}
 
 			if (*guardMap)[rowIndex+1][colIndex] == "#" {
-				fmt.Println("found #")
 				return rowIndex, colIndex - 1, "left", false
 			}
 			return rowIndex + 1, colIndex, direction, false
@@ -103,7 +156,6 @@ func guardMove(guardMap *[][]string, rowIndex int, colIndex int, direction strin
 			}
 
 			if (*guardMap)[rowIndex][colIndex-1] == "#" {
-				fmt.Println("found #")
 				return rowIndex - 1, colIndex, "up", false
 			}
 			return rowIndex, colIndex - 1, direction, false
@@ -115,7 +167,6 @@ func guardMove(guardMap *[][]string, rowIndex int, colIndex int, direction strin
 			}
 
 			if (*guardMap)[rowIndex][colIndex+1] == "#" {
-				fmt.Println("found #")
 				return rowIndex + 1, colIndex, "down", false
 			}
 			return rowIndex, colIndex + 1, direction, false
