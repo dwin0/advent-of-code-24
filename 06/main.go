@@ -2,187 +2,257 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"log"
-	"slices"
-	"strconv"
-	"strings"
-
 	"os"
+	"strings"
 )
 
-var startingDirection = "up"
+var errLoop = errors.New("guard stuck in a loop")
 
-// Part 1
-// func main() {
-// 	guardMap := readMap("./map-small.txt")
-// 	rowIndex, colIndex := findGuard(&guardMap)
-// 	markSignInMap(&guardMap, rowIndex, colIndex, "X")
-// 	direction := startingDirection
+type Direction int
 
-// 	for {
-// 		updatedRowIndex, updatedColIndex, updatedDirection, hasLeftArea := guardMove(&guardMap, rowIndex, colIndex, direction)
-// 		rowIndex = updatedRowIndex
-// 		colIndex = updatedColIndex
-// 		direction = updatedDirection
+const (
+	Up Direction = iota
+	Right
+	Down
+	Left
+)
 
-// 		if hasLeftArea {
-// 			break
-// 		} else {
-// 			markSignInMap(&guardMap, rowIndex, colIndex, "X")
-// 			fmt.Println(guardMap)
-// 		}
-// 	}
+var directionName = map[Direction]string{
+	Up:    "up",
+	Right: "right",
+	Down:  "down",
+	Left:  "left",
+}
 
-// 	fmt.Println("X in map", countXInMap(&guardMap))
-// }
+func (d Direction) String() string {
+	return directionName[d]
+}
 
-// Part 2 (not working)
+type Position struct {
+	rowIndex int
+	colIndex int
+}
 
-var visitedPlaces = make(map[string][]string)
+type Guard struct {
+	position      Position
+	direction     Direction
+	visitedPlaces map[string]bool
+}
+
+func (g *Guard) update(rowIndex, colIndex int, direction Direction) error {
+	g.position = Position{rowIndex: rowIndex, colIndex: colIndex}
+	g.direction = direction
+
+	placeId := fmt.Sprintf("%d_%d_%s", rowIndex, colIndex, direction)
+
+	visitedBefore := g.visitedPlaces[placeId]
+	if visitedBefore {
+		return errLoop
+	}
+
+	g.visitedPlaces[placeId] = true
+	return nil
+}
+
+type ManufacturingLab struct {
+	labMap        [][]string
+	guard         Guard
+	possibleLoops int
+}
 
 func main() {
-	guardMap := readMap("./map.txt")
-	guardRowIndex, guardColIndex := findGuard(&guardMap)
+	guard := Guard{position: Position{colIndex: -1, rowIndex: -1}, visitedPlaces: make(map[string]bool, 0)}
+	manufacturingLab := ManufacturingLab{
+		labMap: [][]string{},
+		guard:  guard,
+	}
 
-	totalPossibleLoops := 0
+	err := manufacturingLab.readLabMap("./map-small.txt")
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	for iRow, row := range guardMap {
-		for iCol, val := range row {
-			if val == "#" || val == "^" {
-				continue
-			}
+	err = manufacturingLab.findGuard()
+	if err != nil {
+		log.Fatal(err)
+	}
 
-			if loopByPlacingObstruction(copyMap(guardMap), iRow, iCol, guardRowIndex, guardColIndex) {
-				totalPossibleLoops++
-				fmt.Println(iRow, iCol)
+	// Part 1
+	// for {
+	// 	done, err := manufacturingLab.guardMove()
+	// 	if err != nil {
+	// 		log.Fatal(err)
+	// 	}
+	// 	if done {
+	// 		break
+	// 	}
+	// }
+
+	// Part 2
+	err = manufacturingLab.countPossibleLoops()
+	if err != nil {
+		log.Fatal(err)
+	}
+	manufacturingLab.log()
+}
+
+func (ml *ManufacturingLab) log() {
+	// fmt.Println(ml.labMap)
+	// fmt.Println("distinct positions", ml.countXInMap())
+	fmt.Println("possibleLoops", ml.possibleLoops)
+	fmt.Println(ml.guard.visitedPlaces)
+}
+
+func (ml *ManufacturingLab) countPossibleLoops() error {
+	possibleLoops := 0
+
+	for rowIndex, row := range ml.labMap {
+		for columnIndex, char := range row {
+			if char == "." {
+				hasLoop, err := ml.hasLoopWithObstacleAt(rowIndex, columnIndex)
+				fmt.Println(hasLoop, err)
+
+				if err != nil {
+					return err
+				}
+
+				if hasLoop {
+					possibleLoops++
+				}
+
 			}
 		}
 	}
 
-	fmt.Println("totalPossibleLoops", totalPossibleLoops)
+	ml.possibleLoops = possibleLoops
+	return nil
 }
 
-func copyMap(guardMap [][]string) [][]string {
-	duplicate := make([][]string, len(guardMap))
-	for i := range guardMap {
-		duplicate[i] = make([]string, len(guardMap[i]))
-		copy(duplicate[i], guardMap[i])
-	}
-	return duplicate
-}
+func (ml *ManufacturingLab) hasLoopWithObstacleAt(rowIndex, colIndex int) (bool, error) {
+	originalMap := ml.labMap
+	mapCopy := copyLabMap(ml.labMap)
+	mapCopy[rowIndex][colIndex] = "#"
+	ml.labMap = mapCopy
 
-func loopByPlacingObstruction(guardMap [][]string, rowIndex int, colIndex int, guardRowPosition int, guardColPosition int) bool {
-	guardMap[rowIndex][colIndex] = "#"
-	direction := startingDirection
-	addToVisitedPlaces(guardRowPosition, guardColPosition, direction)
-	defer clearVisitedPlaces()
+	originalPosition := Position{rowIndex: ml.guard.position.rowIndex, colIndex: ml.guard.position.colIndex}
+	originalDirection := ml.guard.direction
+
+	defer func() {
+		ml.guard.visitedPlaces = make(map[string]bool, 0)
+		ml.labMap = originalMap
+		ml.guard.update(originalPosition.rowIndex, originalPosition.colIndex, originalDirection)
+	}()
 
 	for {
-		updatedRowIndex, updatedColIndex, updatedDirection, hasLeftArea := guardMove(&guardMap, guardRowPosition, guardColPosition, direction)
+		done, err := ml.guardMove()
 
-		if hasLeftArea {
-			return false
-		} else if isLoop(updatedRowIndex, updatedColIndex, updatedDirection) {
-			// fmt.Println(updatedRowIndex, updatedColIndex, updatedDirection)
-			return true
-		} else {
-			// fmt.Println(updatedRowIndex, updatedColIndex, updatedDirection)
-			addToVisitedPlaces(updatedRowIndex, updatedColIndex, updatedDirection)
+		if err == errLoop {
+			return true, nil
 		}
 
-		guardRowPosition = updatedRowIndex
-		guardColPosition = updatedColIndex
-		direction = updatedDirection
+		if err != nil {
+			return false, err
+		}
+
+		if done {
+			return false, nil
+		}
 	}
 }
 
-func addToVisitedPlaces(rowIndex int, colIndex int, direction string) {
-	rIndex := strconv.Itoa(rowIndex)
-	cIndex := strconv.Itoa(colIndex)
+func copyLabMap(originalMap [][]string) (copy [][]string) {
+	copy = make([][]string, len(originalMap))
 
-	existingDirections, found := visitedPlaces[rIndex+"_"+cIndex]
-	if found {
-		visitedPlaces[rIndex+"_"+cIndex] = append(existingDirections, direction)
-	} else {
-		visitedPlaces[rIndex+"_"+cIndex] = []string{direction}
-	}
-}
+	for rowIndex, row := range originalMap {
+		copy[rowIndex] = make([]string, len(row))
 
-func clearVisitedPlaces() {
-	visitedPlaces = make(map[string][]string)
-}
-
-func isLoop(rowIndex int, colIndex int, direction string) bool {
-	rIndex := strconv.Itoa(rowIndex)
-	cIndex := strconv.Itoa(colIndex)
-
-	existingDirections, found := visitedPlaces[rIndex+"_"+cIndex]
-	if found {
-		return slices.Contains(existingDirections, direction)
+		for columnIndex, char := range row {
+			copy[rowIndex][columnIndex] = char
+		}
 	}
 
-	return false
+	return copy
 }
 
-func guardMove(guardMap *[][]string, rowIndex int, colIndex int, direction string) (newRowIndex int, newColIndex int, newDirection string, leftArea bool) {
+func (ml *ManufacturingLab) guardMove() (done bool, err error) {
+	position := ml.guard.position
+	direction := ml.guard.direction
+
 	switch direction {
-	case "up":
+	case Up:
 		{
-			if rowIndex-1 < 0 {
-				return rowIndex, colIndex, direction, true
+			if position.rowIndex-1 < 0 {
+				return true, nil
 			}
 
-			if (*guardMap)[rowIndex-1][colIndex] == "#" {
-				return rowIndex, colIndex + 1, "right", false
+			if ml.labMap[position.rowIndex-1][position.colIndex] == "#" {
+				err := ml.guard.update(position.rowIndex, position.colIndex, Right)
+				return false, err
 			}
-			return rowIndex - 1, colIndex, direction, false
+
+			ml.markXInMap(position.rowIndex-1, position.colIndex)
+			err := ml.guard.update(position.rowIndex-1, position.colIndex, Up)
+			return false, err
 		}
-	case "down":
+	case Down:
 		{
-			if rowIndex+1 == len(*guardMap) {
-				return rowIndex, colIndex, direction, true
+			if position.rowIndex+1 == len(ml.labMap) {
+				return true, nil
 			}
 
-			if (*guardMap)[rowIndex+1][colIndex] == "#" {
-				return rowIndex, colIndex - 1, "left", false
+			if ml.labMap[position.rowIndex+1][position.colIndex] == "#" {
+				err := ml.guard.update(position.rowIndex, position.colIndex, Left)
+				return false, err
 			}
-			return rowIndex + 1, colIndex, direction, false
+
+			ml.markXInMap(position.rowIndex+1, position.colIndex)
+			err := ml.guard.update(position.rowIndex+1, position.colIndex, Down)
+			return false, err
 		}
-	case "left":
+	case Left:
 		{
-			if colIndex-1 < 0 {
-				return rowIndex, colIndex, direction, true
+			if position.colIndex-1 < 0 {
+				return true, nil
 			}
 
-			if (*guardMap)[rowIndex][colIndex-1] == "#" {
-				return rowIndex - 1, colIndex, "up", false
+			if ml.labMap[position.rowIndex][position.colIndex-1] == "#" {
+				err := ml.guard.update(position.rowIndex, position.colIndex, Up)
+				return false, err
 			}
-			return rowIndex, colIndex - 1, direction, false
+
+			ml.markXInMap(position.rowIndex, position.colIndex-1)
+			err := ml.guard.update(position.rowIndex, position.colIndex-1, Left)
+			return false, err
 		}
-	case "right":
+	case Right:
 		{
-			if colIndex+1 == len((*guardMap)[0]) {
-				return rowIndex, colIndex, direction, true
+			if position.colIndex+1 == len(ml.labMap[0]) {
+				return true, nil
 			}
 
-			if (*guardMap)[rowIndex][colIndex+1] == "#" {
-				return rowIndex + 1, colIndex, "down", false
+			if ml.labMap[position.rowIndex][position.colIndex+1] == "#" {
+				err := ml.guard.update(position.rowIndex, position.colIndex, Down)
+				return false, err
 			}
-			return rowIndex, colIndex + 1, direction, false
+
+			ml.markXInMap(position.rowIndex, position.colIndex+1)
+			err := ml.guard.update(position.rowIndex, position.colIndex+1, Right)
+			return false, err
 		}
 	default:
 		{
-			log.Fatal("Unknown direction", direction)
-			return
+			return false, errors.New("invalid direction")
 		}
 	}
 }
 
-func countXInMap(guardMap *[][]string) int {
+func (ml *ManufacturingLab) countXInMap() int {
 	totalX := 0
 
-	for _, row := range *guardMap {
+	for _, row := range ml.labMap {
 		for _, char := range row {
 			if char == "X" {
 				totalX++
@@ -193,54 +263,41 @@ func countXInMap(guardMap *[][]string) int {
 	return totalX
 }
 
-func markSignInMap(guardMap *[][]string, rowIndex int, colIndex int, sign string) {
-	// Part 1
-	// (*guardMap)[rowIndex][colIndex] = sign
-
-	existingSign := (*guardMap)[rowIndex][colIndex]
-	if existingSign != "." && existingSign != sign {
-		// TODO: we have been here before, check if there are # around
-		// additionally check if we are close to a wall and handle this case
-
-		(*guardMap)[rowIndex][colIndex] = "+"
-	} else {
-		(*guardMap)[rowIndex][colIndex] = sign
-	}
+func (ml *ManufacturingLab) markXInMap(rowIndex int, colIndex int) {
+	ml.labMap[rowIndex][colIndex] = "X"
 }
 
-func findGuard(guardMap *[][]string) (rowIndex int, colIndex int) {
-	for iRow, row := range *guardMap {
+func (ml *ManufacturingLab) findGuard() error {
+	for iRow, row := range ml.labMap {
 		for iCol, char := range row {
 			if char == "^" {
-				return iRow, iCol
+				ml.guard.update(iRow, iCol, Up)
+				ml.markXInMap(iRow, iCol)
+				return nil
 			}
 		}
 	}
 
-	log.Fatal("No guard found")
-	return
+	return errors.New("no guard found")
 }
 
-func readMap(filePath string) [][]string {
+func (ml *ManufacturingLab) readLabMap(filePath string) error {
 	file, err := os.Open(filePath)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer file.Close()
 
 	sc := bufio.NewScanner(file)
-	guardMap := make([][]string, 0)
 
 	for sc.Scan() {
 		line := sc.Text()
-		symbols := strings.Split(line, "")
-		guardMap = append(guardMap, symbols)
-
+		ml.labMap = append(ml.labMap, strings.Split(line, ""))
 	}
 
 	if err := sc.Err(); err != nil {
-		log.Fatal(err)
+		return err
 	}
 
-	return guardMap
+	return nil
 }
