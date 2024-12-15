@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"slices"
+	"sort"
 	"strings"
 
 	"github.com/dwin0/advent-of-code-24/lib"
@@ -13,9 +15,10 @@ import (
 type GardenRegionName string
 
 type GardenRegionValues struct {
-	name      GardenRegionName // for debugging
-	area      int
-	perimeter int
+	name          GardenRegionName // for debugging
+	area          int
+	perimeter     int
+	numberOfSides int
 }
 
 type Position struct {
@@ -155,13 +158,15 @@ func (g *Garden) readGardenPlotsMap(filePath string) error {
 func (g *Garden) calculateRegionValues() {
 	for regionName, positions := range g.regionNameToPositions {
 		g.regionValues = append(g.regionValues, GardenRegionValues{
-			name:      regionName,
-			area:      len(positions),
-			perimeter: calculatePerimeter(positions),
+			name:          regionName,
+			area:          len(positions),
+			perimeter:     calculatePerimeter(positions),
+			numberOfSides: calculateNumberOfSides(positions),
 		})
 	}
 }
 
+// Part 1
 func calculatePerimeter(positions []Position) int {
 	perimeterTotal := 0
 
@@ -183,12 +188,104 @@ func calculatePerimeter(positions []Position) int {
 	return perimeterTotal
 }
 
+// Part 2
+func calculateNumberOfSides(positions []Position) int {
+	/*
+		Idea:
+		1. Collect all sides where a fence should be placed. Collect horizontal fences (rowFences) separately from vertical fences (columnFences).
+			-> For row fences, only store the columns
+			-> For column fences, only store the row
+		2. Sort the fences
+		3. Check for continuity in the sorted fences.
+			-> For row fences, check if there are non-continuous columns. Continuous fences only count as 1. Every non-continuous number increases the number of sides to place a fence.
+	*/
+
+	rowFences := make(map[string][]int)
+	columnFences := make(map[string][]int)
+
+	for i, currentPosition := range positions {
+		otherPositions := append([]Position{}, positions[:i]...)
+		otherPositions = append(otherPositions, positions[i+1:]...)
+
+		// check above, below, left and right: If there's another position, no need to add a fence on this side
+		for _, rowOffset := range []int{-1, 1} {
+			rowIndexToTest := currentPosition.rowIndex + rowOffset
+
+			if slices.IndexFunc(otherPositions, func(p Position) bool {
+				return p.rowIndex == rowIndexToTest && p.columnIndex == currentPosition.columnIndex
+			}) != -1 {
+				// no fence needed on this side
+			} else {
+				fenceRowId := fmt.Sprintf("%d_%d", currentPosition.rowIndex, rowIndexToTest)
+				existing, found := rowFences[fenceRowId]
+
+				if found {
+					rowFences[fenceRowId] = append(existing, currentPosition.columnIndex)
+				} else {
+					rowFences[fenceRowId] = []int{currentPosition.columnIndex}
+				}
+			}
+		}
+		for _, columnOffset := range []int{-1, 1} {
+			columnIndexToTest := currentPosition.columnIndex + columnOffset
+
+			if slices.IndexFunc(otherPositions, func(p Position) bool {
+				return p.columnIndex == columnIndexToTest && p.rowIndex == currentPosition.rowIndex
+			}) != -1 {
+				// no fence needed on this side
+			} else {
+				fenceColumnId := fmt.Sprintf("%d_%d", currentPosition.columnIndex, columnIndexToTest)
+				existing, found := columnFences[fenceColumnId]
+
+				if found {
+					columnFences[fenceColumnId] = append(existing, currentPosition.rowIndex)
+				} else {
+					columnFences[fenceColumnId] = []int{currentPosition.rowIndex}
+				}
+			}
+		}
+	}
+
+	for rowIndex := range rowFences {
+		sort.Ints(rowFences[rowIndex])
+	}
+	for columnIndex := range columnFences {
+		sort.Ints(columnFences[columnIndex])
+	}
+
+	// Check for continuous fences. These only count as 1 side.
+	continuousRowFences := 0
+	for _, fenceColumns := range rowFences {
+		for i, column := range fenceColumns {
+			if i == 0 {
+				continuousRowFences++
+			} else if lib.AbsInt(column-fenceColumns[i-1]) > 1 {
+				continuousRowFences++
+			}
+		}
+	}
+
+	continuousColumnFences := 0
+	for _, fenceRows := range columnFences {
+		for i, row := range fenceRows {
+			if i == 0 {
+				continuousColumnFences++
+			} else if lib.AbsInt(row-fenceRows[i-1]) > 1 {
+				continuousColumnFences++
+			}
+		}
+	}
+
+	return continuousRowFences + continuousColumnFences
+}
+
 func (g *Garden) calculateTotalPrice() {
 	totalPrice := 0
 
 	for _, region := range g.regionValues {
 		fmt.Println(region)
-		totalPrice += region.area * region.perimeter
+		// totalPrice += region.area * region.perimeter // Part 1
+		totalPrice += region.area * region.numberOfSides // Part 2
 	}
 
 	g.totalPrice = totalPrice
