@@ -8,10 +8,13 @@ import (
 	"os"
 	"regexp"
 	"strconv"
+
+	"gonum.org/v1/gonum/mat"
 )
 
 const buttonATokens = 3
 const buttonBTokens = 1
+const deltaPrize = 10000000000000 // Part 2
 
 type Position struct {
 	x int
@@ -28,6 +31,9 @@ type Lobby struct {
 	clawMachines []ClawMachine
 }
 
+// https://en.wikipedia.org/wiki/System_of_linear_equations
+// https://www.reddit.com/r/golang/comments/zs0hqy/how_to_solve_a_set_of_simultaneous_equations_in_go/
+
 func main() {
 	lobby := Lobby{
 		clawMachines: []ClawMachine{},
@@ -40,29 +46,74 @@ func main() {
 
 	minimumTokensNeeded := 0
 	for _, machine := range lobby.clawMachines {
-		minimumTokensNeeded += machine.calculateMinTokensNeeded()
+		tokenNeeded, calculationErr := machine.calculateMinTokensNeeded()
+		if calculationErr != nil {
+			log.Fatal(calculationErr)
+		}
+
+		minimumTokensNeeded += tokenNeeded
 	}
 
 	fmt.Println("minimumTokensNeeded", minimumTokensNeeded)
 }
 
-func (cm *ClawMachine) calculateMinTokensNeeded() int {
-	maxButtonBPresses := math.Min(math.Max(float64(cm.pricePosition.x/cm.buttonBMovement.x), float64(cm.pricePosition.y/cm.buttonBMovement.y)), 100)
+func (cm *ClawMachine) calculateMinTokensNeeded() (int, error) {
+	amountOfEquations := 2
+	amountOfVariables := 2
 
-	for buttonBPresses := int(maxButtonBPresses); buttonBPresses >= 0; buttonBPresses-- {
-		movementXLeftForButtonA := cm.pricePosition.x - buttonBPresses*cm.buttonBMovement.x
-		buttonAPressesForX := float64(movementXLeftForButtonA) / float64(cm.buttonAMovement.x)
-		movementYLeftForButtonA := cm.pricePosition.y - buttonBPresses*cm.buttonBMovement.y
-		buttonAPressesForY := float64(movementYLeftForButtonA) / float64(cm.buttonAMovement.y)
+	A := mat.NewDense(amountOfEquations, amountOfVariables, []float64{
+		float64(cm.buttonAMovement.x),
+		float64(cm.buttonBMovement.x),
+		float64(cm.buttonAMovement.y),
+		float64(cm.buttonBMovement.y),
+	})
+	b := mat.NewVecDense(amountOfEquations, []float64{
+		float64(cm.pricePosition.x),
+		float64(cm.pricePosition.y)},
+	)
 
-		if buttonAPressesForX == buttonAPressesForY && buttonAPressesForX <= 100 && float64(int(buttonAPressesForX))-buttonAPressesForX == 0 {
-			return int(buttonAPressesForX)*buttonATokens + buttonBPresses*buttonBTokens
-		}
-
+	var x mat.VecDense
+	if err := x.SolveVec(A, b); err != nil {
+		return 0, err
 	}
 
-	return 0
+	solutionAB := x.RawVector().Data
+	solutionA := int(math.Round(solutionAB[0]))
+	solutionB := int(math.Round(solutionAB[1]))
+
+	// You estimate that each button would need to be pressed no more than 100 times to win a prize.
+	// if solutionA < 0 || solutionA > 100 || solutionB < 0 || solutionB > 100 { Part 1
+	if solutionA < 0 || solutionB < 0 { // Part 2
+		// ignore result
+		return 0, nil
+	}
+
+	if solutionA*cm.buttonAMovement.x+solutionB*cm.buttonBMovement.x != cm.pricePosition.x || solutionA*cm.buttonAMovement.y+solutionB*cm.buttonBMovement.y-cm.pricePosition.y != 0 {
+		// ignore result
+		return 0, nil
+	}
+
+	return solutionA*buttonATokens + solutionB*buttonBTokens, nil
 }
+
+// Part 1
+// func (cm *ClawMachine) calculateMinTokensNeeded() int {
+// 	maxButtonBPresses := math.Min(math.Max(float64(cm.pricePosition.x/cm.buttonBMovement.x), float64(cm.pricePosition.y/cm.buttonBMovement.y)), 100)
+
+// 	for buttonBPresses := int(maxButtonBPresses); buttonBPresses >= 0; buttonBPresses-- {
+// 		movementXLeftForButtonA := cm.pricePosition.x - buttonBPresses*cm.buttonBMovement.x
+// 		buttonAPressesForX := float64(movementXLeftForButtonA) / float64(cm.buttonAMovement.x)
+// 		movementYLeftForButtonA := cm.pricePosition.y - buttonBPresses*cm.buttonBMovement.y
+// 		buttonAPressesForY := float64(movementYLeftForButtonA) / float64(cm.buttonAMovement.y)
+
+// 		if buttonAPressesForX == buttonAPressesForY && buttonAPressesForX <= 100 && float64(int(buttonAPressesForX))-buttonAPressesForX == 0 {
+// 			return int(buttonAPressesForX)*buttonATokens + buttonBPresses*buttonBTokens
+// 		}
+
+// 	}
+
+// 	return 0
+// }
 
 func (l *Lobby) readClawMachines(filePath string) error {
 	file, err := os.Open(filePath)
@@ -101,11 +152,19 @@ func (l *Lobby) readClawMachines(filePath string) error {
 			return prizeErr
 		}
 
+		// Part 2
 		machine := ClawMachine{
 			buttonAMovement: Position{x: buttonAx, y: buttonAy},
 			buttonBMovement: Position{x: buttonBx, y: buttonBy},
-			pricePosition:   Position{x: prizeX, y: prizeY},
+			pricePosition:   Position{x: prizeX + deltaPrize, y: prizeY + deltaPrize},
 		}
+
+		// Part 1
+		// machine := ClawMachine{
+		// 	buttonAMovement: Position{x: buttonAx, y: buttonAy},
+		// 	buttonBMovement: Position{x: buttonBx, y: buttonBy},
+		// 	pricePosition:   Position{x: prizeX, y: prizeY},
+		// }
 		l.clawMachines = append(l.clawMachines, machine)
 		lines = []string{}
 	}
