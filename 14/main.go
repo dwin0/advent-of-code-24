@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"regexp"
 	"strconv"
@@ -36,13 +37,12 @@ type EBHQ struct {
 }
 
 func main() {
-	seconds := 100
 	// config := Config{
 	// 	inputPath:       "./input-small.txt",
 	// 	tilesXDirection: 11,
 	// 	tilesYDirection: 7,
 	// }
-	config := Config{
+	config := Config{ // Part 2 does not work with the small input
 		inputPath:       "./input.txt",
 		tilesXDirection: 101,
 		tilesYDirection: 103,
@@ -57,59 +57,92 @@ func main() {
 		log.Fatal(err)
 	}
 
-	ebhq.elapseSecond(config, seconds)
-	safetyFactor := ebhq.calculateSafetyFactor(config)
-	fmt.Println(safetyFactor)
+	// Part 1
+	// seconds := 100
+	// ebhq.elapseSecond(config, seconds)
+	// safetyFactor := ebhq.calculateSafetyFactor(config)
+	// fmt.Println(safetyFactor)
+
+	// Part 2
+	seconds := 0
+	for {
+		amountOfCloseRobots := ebhq.robotsNextToEachOther()
+
+		// random threshold
+		if amountOfCloseRobots > 350 {
+			fmt.Println(ebhq.createRobotsMap(config))
+			break
+		}
+		seconds++
+		ebhq.elapseSecond(config, 1)
+	}
+
+	fmt.Println("seconds:", seconds)
 }
 
-// func (e *EBHQ) log(config Config) {
-// 	fmt.Println(e.robots)
-// 	fmt.Println(e.createRobotsMap(config))
-// }
+// Part 2
+// https://www.reddit.com/r/adventofcode/comments/1hee2nr/day_14_part_2_losing_my_mind_need_help/
+func (e *EBHQ) robotsNextToEachOther() int {
+	sum := 0
+	for _, robot1 := range e.robots {
+		for _, robot2 := range e.robots {
+			if robot1 == robot2 {
+				continue
+			}
 
-func (e *EBHQ) calculateSafetyFactor(config Config) int {
-	robotsInQuadrants := []int{0, 0, 0, 0}
-
-	for _, robot := range e.robots {
-		if robot.position.x < config.tilesXDirection/2 && robot.position.y < config.tilesYDirection/2 {
-			robotsInQuadrants[0]++
-		} else if robot.position.x > config.tilesXDirection/2 && robot.position.y < config.tilesYDirection/2 {
-			robotsInQuadrants[1]++
-		} else if robot.position.x < config.tilesXDirection/2 && robot.position.y > config.tilesYDirection/2 {
-			robotsInQuadrants[2]++
-		} else if robot.position.x > config.tilesXDirection/2 && robot.position.y > config.tilesYDirection/2 {
-			robotsInQuadrants[3]++
+			if math.Abs(float64(robot1.position.x-robot2.position.x))+math.Abs(float64(robot1.position.y-robot2.position.y)) == 1 {
+				sum++
+			}
 		}
 	}
 
-	return robotsInQuadrants[0] * robotsInQuadrants[1] * robotsInQuadrants[2] * robotsInQuadrants[3]
+	return sum
 }
 
-// for debugging, not needed to solve task
-// func (e *EBHQ) createRobotsMap(config Config) [][]string {
-// 	robotsMap := make([][]int, config.tilesYDirection)
-// 	for i := range robotsMap {
-// 		robotsMap[i] = make([]int, config.tilesXDirection)
-// 	}
+// Part 1
+// func (e *EBHQ) calculateSafetyFactor(config Config) int {
+// 	robotsInQuadrants := []int{0, 0, 0, 0}
 
 // 	for _, robot := range e.robots {
-// 		robotsMap[robot.position.y][robot.position.x]++
-// 	}
-
-// 	robotsMapString := make([][]string, len(robotsMap))
-// 	for i := range robotsMap {
-// 		robotsMapString[i] = make([]string, len(robotsMap[i]))
-// 		for j := range robotsMap[i] {
-// 			if robotsMap[i][j] > 0 {
-// 				robotsMapString[i][j] = strconv.Itoa(robotsMap[i][j])
-// 			} else {
-// 				robotsMapString[i][j] = "."
-// 			}
+// 		if robot.position.x < config.tilesXDirection/2 && robot.position.y < config.tilesYDirection/2 {
+// 			robotsInQuadrants[0]++
+// 		} else if robot.position.x > config.tilesXDirection/2 && robot.position.y < config.tilesYDirection/2 {
+// 			robotsInQuadrants[1]++
+// 		} else if robot.position.x < config.tilesXDirection/2 && robot.position.y > config.tilesYDirection/2 {
+// 			robotsInQuadrants[2]++
+// 		} else if robot.position.x > config.tilesXDirection/2 && robot.position.y > config.tilesYDirection/2 {
+// 			robotsInQuadrants[3]++
 // 		}
 // 	}
 
-// 	return robotsMapString
+// 	return robotsInQuadrants[0] * robotsInQuadrants[1] * robotsInQuadrants[2] * robotsInQuadrants[3]
 // }
+
+// for debugging
+func (e *EBHQ) createRobotsMap(config Config) [][]string {
+	robotsMap := make([][]int, config.tilesYDirection)
+	for i := range robotsMap {
+		robotsMap[i] = make([]int, config.tilesXDirection)
+	}
+
+	for _, robot := range e.robots {
+		robotsMap[robot.position.y][robot.position.x]++
+	}
+
+	robotsMapString := make([][]string, len(robotsMap))
+	for i := range robotsMap {
+		robotsMapString[i] = make([]string, len(robotsMap[i]))
+		for j := range robotsMap[i] {
+			if robotsMap[i][j] > 0 {
+				robotsMapString[i][j] = "#" //strconv.Itoa(robotsMap[i][j])
+			} else {
+				robotsMapString[i][j] = "."
+			}
+		}
+	}
+
+	return robotsMapString
+}
 
 func (e *EBHQ) elapseSecond(config Config, seconds int) {
 	for i := range e.robots {
